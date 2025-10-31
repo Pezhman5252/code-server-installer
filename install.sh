@@ -40,23 +40,23 @@ echo "----------------------------------------------------------------"
 log_info "Please enter the required information:"
 echo "----------------------------------------------------------------"
 
-read -p "1. Subdomain (e.g., code.yourdomain.com): " DOMAIN
+read -p "1. Subdomain (e.g., code.yourdomain.com): " DOMAIN < /dev/tty
 while [[ -z "$DOMAIN" ]]; do
     log_error "Subdomain cannot be empty."
-    read -p "1. Subdomain (e.g., code.yourdomain.com): " DOMAIN
+    read -p "1. Subdomain (e.g., code.yourdomain.com): " DOMAIN < /dev/tty
 done
 
-read -p "2. Your email for the SSL certificate (e.g., your-email@example.com): " EMAIL
+read -p "2. Your email for the SSL certificate (e.g., your-email@example.com): " EMAIL < /dev/tty
 while [[ -z "$EMAIL" ]]; do
     log_error "Email cannot be empty."
-    read -p "2. Your email for the SSL certificate (e.g., your-email@example.com): " EMAIL
+    read -p "2. Your email for the SSL certificate (e.g., your-email@example.com): " EMAIL < /dev/tty
 done
 
-read -s -p "3. Enter a strong password for Code-Server: " PASSWORD
+read -s -p "3. Enter a strong password for Code-Server: " PASSWORD < /dev/tty
 while [[ -z "$PASSWORD" ]]; do
     echo
     log_error "Password cannot be empty."
-    read -s -p "3. Enter a strong password for Code-Server: " PASSWORD
+    read -s -p "3. Enter a strong password for Code-Server: " PASSWORD < /dev/tty
 done
 echo
 echo "----------------------------------------------------------------"
@@ -196,7 +196,7 @@ log_success "Automatic SSL renewal configured successfully."
 
 # --- Step 8: Download management script ---
 log_info "Step 8: Downloading the management script..."
-curl -sSL https://raw.githubusercontent.com/Pezhman5252/code-server-installer/main/manage.sh -o /usr/local/bin/code-server-panel
+curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/manage.sh -o /usr/local/bin/code-server-panel
 chmod +x /usr/local/bin/code-server-panel
 log_success "Management script installed as 'code-server-panel'."
 
