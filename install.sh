@@ -108,9 +108,14 @@ cat > Dockerfile <<'EOF'
 FROM codercom/code-server:latest
 USER root
 RUN apt-get update && apt-get install -y python3 python3-pip python3-venv tmux sudo && rm -rf /var/lib/apt/lists/*
-RUN addgroup --gid ${PGID:-1000} coder && \
-    adduser --uid ${PUID:-1000} --ingroup coder --home /home/coder --shell /bin/bash --disabled-password --gecos "" coder && \
+
+# --- بخش اصلاح شده ---
+# به جای ساختن کاربر جدید، کاربر 'coder' موجود را اصلاح می‌کنیم
+RUN groupmod -g ${PGID:-1000} coder && \
+    usermod -u ${PUID:-1000} -g ${PGID:-1000} coder && \
     echo "coder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# --- پایان بخش اصلاح شده ---
+
 USER coder
 EOF
 
