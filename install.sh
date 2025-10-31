@@ -196,7 +196,7 @@ log_success "Automatic SSL renewal configured successfully."
 
 # --- Step 8: Download management script ---
 log_info "Step 8: Downloading the management script..."
-curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/manage.sh -o /usr/local/bin/code-server-panel
+curl -sSL https://raw.githubusercontent.com/Pezhman5252/code-server-installer/main/manage.sh -o /usr/local/bin/code-server-panel
 chmod +x /usr/local/bin/code-server-panel
 log_success "Management script installed as 'code-server-panel'."
 
