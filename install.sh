@@ -65,7 +65,7 @@ echo "----------------------------------------------------------------"
 log_info "Step 1: Initial server preparation and optimization..."
 fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
-apt update && apt upgrade -y
+apt update && DEBIAN_FRONTEND=noninteractive apt upgrade -y
 log_success "Server prepared successfully."
 
 # --- Step 2: Install Docker and Docker Compose ---
