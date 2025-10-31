@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-#  Advanced & Automated Code-Server Installation Script
-#  Version: 2.0 - Production Ready
+#  Advanced & Automated Code-Server Installation Script (No Panel)
+#  Version: 2.1 - Production Ready
 #  Target OS: Ubuntu 24.04 LTS
 #  Run with: curl -sSL <URL> | sudo bash
 # ==============================================================================
@@ -221,15 +221,8 @@ CRON_JOB="30 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /va
 (crontab -l 2>/dev/null | grep -F "$CRON_JOB") || (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
 log_success "Automatic SSL renewal configured."
 
-# --- Step 8: Robust Management Panel Setup ---
-log_info "Step 8: Downloading and setting up the management script..."
-MANAGE_SCRIPT_URL="https://raw.githubusercontent.com/Pezhman5252/code-server-installer/main/manage.sh"
-curl -fsSL "$MANAGE_SCRIPT_URL" -o /usr/local/bin/code-server-panel || log_error "Failed to download management script. Check your network and the URL."
-chmod +x /usr/local/bin/code-server-panel
-log_success "Management script 'code-server-panel' installed."
-
-# --- Step 9: Comprehensive Final Verification ---
-log_info "Step 9: Performing comprehensive final verification..."
+# --- Step 8: Comprehensive Final Verification ---
+log_info "Step 8: Performing comprehensive final verification..."
 sleep 15 # Allow containers to fully initialize
 
 # Check if containers are running by name
@@ -238,11 +231,6 @@ if ! docker ps --format '{{.Names}}' | grep -q '^code-server$'; then
 fi
 if ! docker ps --format '{{.Names}}' | grep -q '^nginx-proxy$'; then
     log_error "Container 'nginx-proxy' is not running. Check logs with 'docker compose logs nginx-proxy'."
-fi
-
-# Check if management panel command is available
-if ! command -v code-server-panel &> /dev/null; then
-    log_error "Management panel command 'code-server-panel' is not available in PATH."
 fi
 
 log_success "All verifications passed. The system is fully operational."
@@ -254,5 +242,7 @@ echo "==========================================================================
 echo -e "Code-Server Access URL: ${GREEN}https://$DOMAIN${NC}"
 echo -e "Your password is: ${YELLOW}$PASSWORD${NC}"
 echo
-echo -e "To manage the service, use the command: ${YELLOW}sudo code-server-panel${NC}"
+echo "To manage the service, navigate to the project directory and use 'docker compose'."
+echo "  cd /opt/code-server"
+echo "  docker compose ps"
 echo "==============================================================================="
