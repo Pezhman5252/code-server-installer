@@ -108,14 +108,9 @@ cat > Dockerfile <<'EOF'
 FROM codercom/code-server:latest
 USER root
 RUN apt-get update && apt-get install -y python3 python3-pip python3-venv tmux sudo && rm -rf /var/lib/apt/lists/*
-
-# --- بخش اصلاح شده ---
-# به جای ساختن کاربر جدید، کاربر 'coder' موجود را اصلاح می‌کنیم
 RUN groupmod -g ${PGID:-1000} coder && \
     usermod -u ${PUID:-1000} -g ${PGID:-1000} coder && \
     echo "coder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-# --- پایان بخش اصلاح شده ---
-
 USER coder
 EOF
 
@@ -194,24 +189,42 @@ log_info "Step 6: Building image and starting services..."
 docker compose up -d --build
 log_success "Code-Server service started successfully."
 
-# --- Step 7: Set up automatic SSL renewal ---
+# --- Step 7: Robust SSL Renewal Setup ---
 log_info "Step 7: Setting up automatic SSL renewal..."
-(crontab -l 2>/dev/null; echo "30 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/lib/letsencrypt:/var/lib/letsencrypt certbot/certbot renew --quiet") | crontab -
+CRON_JOB="30 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/lib/letsencrypt:/var/lib/letsencrypt certbot/certbot renew --quiet"
+# Check if the cron job already exists to avoid duplicates
+(crontab -l 2>/dev/null | grep -F "$CRON_JOB") || (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
 log_success "Automatic SSL renewal configured successfully."
 
-# --- Step 8: Download management script ---
-log_info "Step 8: Downloading the management script..."
-curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/manage.sh -o /usr/local/bin/code-server-panel
+# --- Step 8: Robust Management Panel Setup ---
+log_info "Step 8: Downloading and setting up the management script..."
+MANAGE_SCRIPT_URL="https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/manage.sh"
+# IMPORTANT: Replace YOUR_USERNAME with your actual GitHub username
+MANAGE_SCRIPT_URL="https://raw.githubusercontent.com/Pezhman5252/code-server-installer/main/manage.sh"
+
+curl -sSL "$MANAGE_SCRIPT_URL" -o /usr/local/bin/code-server-panel
+# Check if the file was downloaded and is not empty
+if [ ! -s /usr/local/bin/code-server-panel ]; then
+    log_error "Failed to download the management script. Please check the URL and your internet connection."
+fi
 chmod +x /usr/local/bin/code-server-panel
-log_success "Management script installed as 'code-server-panel'."
+log_success "Management script 'code-server-panel' installed and configured."
+
+# --- Step 9: Final Verification ---
+log_info "Step 9: Performing final verification..."
+sleep 10 # Wait for containers to fully initialize
+# Check if both containers are running
+if ! docker compose ps | grep -q "Up"; then
+    log_error "One or more containers failed to start. Please check the logs with 'docker compose logs'."
+fi
+log_success "All services are running correctly."
 
 # --- End ---
 echo "----------------------------------------------------------------"
-log_success "Installation completed successfully!"
+log_success "Installation completed successfully and verified!"
 echo "----------------------------------------------------------------"
 echo -e "Code-Server Access URL: ${GREEN}https://$DOMAIN${NC}"
 echo -e "Your password is: ${YELLOW}$PASSWORD${NC}"
 echo
-echo "To manage the service, use the following command:"
-echo -e "${YELLOW}sudo code-server-panel${NC}"
+echo -e "To manage the service, use the command: ${YELLOW}sudo code-server-panel${NC}"
 echo "----------------------------------------------------------------"
