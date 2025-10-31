@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-#  Advanced & Automated Code-Server Installation Script (No Panel)
-#  Version: 2.1 - Production Ready
+#  Advanced & Automated Code-Server Installation Script (Full Dev Env)
+#  Version: 3.0 - Production Ready
 #  Target OS: Ubuntu 24.04 LTS
 #  Run with: curl -sSL <URL> | sudo bash
 # ==============================================================================
@@ -128,7 +128,7 @@ CODE_SERVER_PASSWORD=$PASSWORD
 EOF
 chmod 600 .env # Secure the password file
 
-# Create Dockerfile
+# Create Dockerfile with auto-extension installation
 cat > Dockerfile <<'EOF'
 FROM codercom/code-server:latest
 USER root
@@ -137,13 +137,24 @@ RUN groupmod -g ${PGID:-1000} coder && \
     usermod -u ${PUID:-1000} -g ${PGID:-1000} coder && \
     echo "coder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER coder
+
+ARG EXTENSIONS
+RUN if [ ! -z "$EXTENSIONS" ]; then \
+        echo "Installing extensions: $EXTENSIONS"; \
+        for extension in $(echo $EXTENSIONS | tr "," " "); do \
+            code-server --install-extension "$extension"; \
+        done; \
+    fi
 EOF
 
-# Create docker-compose.yml
+# Create docker-compose.yml with extension arguments
 cat > docker-compose.yml <<EOF
 services:
   code-server:
-    build: .
+    build: 
+      context: .
+      args:
+        EXTENSIONS: "ms-python.python,ms-python.vscode-pylance,ms-toolsai.jupyter,ms-azuretools.vscode-docker,eamodio.gitlens"
     image: my-custom-code-server
     container_name: code-server
     restart: unless-stopped
@@ -242,6 +253,7 @@ echo "==========================================================================
 echo -e "Code-Server Access URL: ${GREEN}https://$DOMAIN${NC}"
 echo -e "Your password is: ${YELLOW}$PASSWORD${NC}"
 echo
+echo "A full development environment with essential extensions is ready."
 echo "To manage the service, navigate to the project directory and use 'docker compose'."
 echo "  cd /opt/code-server"
 echo "  docker compose ps"
