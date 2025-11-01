@@ -3,8 +3,11 @@
 
 روش استاندارد
 adduser myuser
+
 exit
+
 ssh myuser@YOUR_SERVER_IP
+
 curl -sSL https://raw.githubusercontent.com/Pezhman5252/code-server-installer/main/install.sh | sudo bash
 
 
