@@ -2,7 +2,7 @@
 
 # ==============================================================================
 #  Advanced & Automated Code-Server Installation Script (Final Version)
-#  Version: 2.7 - Production Ready, Fully Tested & Idempotent
+#  Version: 2.8 - Production Ready, Fully Tested & Idempotent
 #  Target OS: Ubuntu 24.04 LTS
 #  Run with: curl -sSL <URL> | sudo bash
 # ==============================================================================
@@ -34,7 +34,6 @@ fi
 log_success "Pre-flight checks passed."
 
 # --- Get Real User ID/GID (Handles sudo correctly and gracefully) ---
-# This logic now supports both running with `sudo` and running directly as `root`.
 if [ -n "${SUDO_USER:-}" ]; then
     REAL_USER="$SUDO_USER"
     REAL_UID=$(id -u "$REAL_USER")
@@ -118,7 +117,6 @@ log_success "SSL certificate issued successfully."
 log_info "Step 4: Creating project structure and setting permissions..."
 mkdir -p /opt/code-server/nginx
 mkdir -p /srv/projects
-# Set ownership and permissions recursively for the project directory
 chown -R "$REAL_UID":"$REAL_GID" /srv/projects
 chmod -R 775 /srv/projects
 cd /opt/code-server
@@ -230,10 +228,34 @@ log_success "All verifications passed. The system is fully operational."
 echo "==============================================================================="
 log_success "Installation completed successfully and verified!"
 echo "==============================================================================="
-echo -e "Code-Server Access URL: ${GREEN}https://$DOMAIN${NC}"
-echo -e "Your password is: ${YELLOW}$PASSWORD${NC}"
+echo -e "🔗 Code-Server Access URL: ${GREEN}https://$DOMAIN${NC}"
+echo -e "🔑 Your password is: ${YELLOW}$PASSWORD${NC}"
 echo
-echo "To manage the service, navigate to the project directory and use 'docker compose'."
+echo "--------------------------------------------------------------------------"
+echo "📖 How to use this installation:"
+echo "--------------------------------------------------------------------------"
+echo "You can now access your Code-Server instance by navigating to the URL above"
+echo "in your web browser and entering the password."
+echo
+echo "To manage the service (start, stop, update), use these commands:"
 echo "  cd /opt/code-server"
-echo "  docker compose ps"
+echo "  docker compose ps        # Check status"
+echo "  docker compose down      # Stop services"
+echo "  docker compose up -d     # Start services"
+echo "  docker compose pull && docker compose up -d # Update services"
+echo
+echo "--------------------------------------------------------------------------"
+echo "ℹ️  About this installation script:"
+echo "--------------------------------------------------------------------------"
+echo "This script is designed to work in two scenarios:"
+echo
+echo "  1️⃣  Standard Method (Recommended):"
+echo "      - Run as a regular user with 'sudo'."
+echo "      - This is the most secure and standard way to manage a Linux server."
+echo "      - The script automatically detects your user and sets correct permissions."
+echo
+echo "  2️⃣  Direct Root Method (Your current method):"
+echo "      - Run directly as the 'root' user."
+echo "      - The script detects this and uses a default user ID (1000)."
+echo "      - While it works, creating a separate user is considered best practice."
 echo "==============================================================================="
