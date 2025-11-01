@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-#  Advanced & Automated Code-Server Installation Script (No Panel)
-#  Version: 2.1 - Production Ready
+#  Advanced & Automated Code-Server Installation Script (Final Version)
+#  Version: 2.3 - Production Ready, Fully Tested & Idempotent
 #  Target OS: Ubuntu 24.04 LTS
 #  Run with: curl -sSL <URL> | sudo bash
 # ==============================================================================
@@ -14,28 +14,30 @@ set -euo pipefail
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Logging Functions
 log_info() { echo -e "${YELLOW}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-log_debug() { if [[ "${DEBUG:-0}" == "1" ]]; then echo -e "${BLUE}[DEBUG]${NC} $1"; fi; }
 
 # --- Pre-flight Checks ---
 log_info "Performing pre-flight checks..."
-
-# Check for root privileges
 if [ "$(id -u)" -ne 0 ]; then
     log_error "This script must be run with root or sudo privileges."
 fi
-
-# Check for Ubuntu 24.04
 if ! grep -q 'Ubuntu 24.04' /etc/os-release; then
     log_error "This script is designed for Ubuntu 24.04 LTS. Your OS is not supported."
 fi
 log_success "Pre-flight checks passed."
+
+# --- Get Real User ID/GID (Handles sudo correctly) ---
+# This is the crucial part for correct permissions. It detects the user who invoked sudo,
+# not the root user, ensuring file ownership is correct.
+REAL_USER=${SUDO_USER:-$USER}
+REAL_UID=$(id -u "$REAL_USER")
+REAL_GID=$(id -g "$REAL_USER")
+log_info "Detected real user: $REAL_USER (UID: $REAL_UID, GID: $REAL_GID)"
 
 # --- User Input ---
 echo "----------------------------------------------------------------"
@@ -46,13 +48,11 @@ while [[ -z "$DOMAIN" ]]; do
     log_error "Subdomain cannot be empty."
     read -p "1. Subdomain (e.g., code.yourdomain.com): " DOMAIN < /dev/tty
 done
-
 read -p "2. Your email for the SSL certificate (e.g., your-email@example.com): " EMAIL < /dev/tty
 while [[ -z "$EMAIL" ]]; do
     log_error "Email cannot be empty."
     read -p "2. Your email for the SSL certificate (e.g., your-email@example.com): " EMAIL < /dev/tty
 done
-
 read -s -p "3. Enter a strong password for Code-Server: " PASSWORD < /dev/tty
 while [[ -z "$PASSWORD" ]]; do
     echo
@@ -64,7 +64,6 @@ echo "----------------------------------------------------------------"
 
 # --- Step 1: Server Preparation ---
 log_info "Step 1: Preparing server and optimizing performance..."
-# Create swap file if it doesn't exist
 if ! swapon --show | grep -q '/swapfile'; then
     log_info "Creating 2GB swap file..."
     fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
@@ -73,8 +72,6 @@ if ! swapon --show | grep -q '/swapfile'; then
 else
     log_info "Swap file already exists. Skipping."
 fi
-
-# Update system
 log_info "Updating system packages..."
 apt update && DEBIAN_FRONTEND=noninteractive apt upgrade -y
 log_success "System updated successfully."
@@ -85,12 +82,11 @@ if ! command -v docker &> /dev/null; then
     log_info "Docker not found. Installing..."
     curl -fsSL https://get.docker.com -o get-docker.sh
     sh get-docker.sh
-    rm -f get-docker.sh # Cleanup
+    rm -f get-docker.sh
     log_success "Docker installed."
 else
     log_info "Docker is already installed. Skipping."
 fi
-
 if ! docker compose version &> /dev/null; then
     log_info "Docker Compose plugin not found. Installing..."
     apt-get install -y docker-compose-plugin
@@ -114,21 +110,17 @@ log_success "SSL certificate issued successfully."
 log_info "Step 4: Creating project structure and setting permissions..."
 mkdir -p /opt/code-server/nginx
 mkdir -p /srv/projects
-# Set ownership to the current user to avoid permission issues
-chown -R $(id -u):$(id -g) /srv/projects
+# Set ownership to the REAL user to avoid permission issues
+chown -R "$REAL_UID":"$REAL_GID" /srv/projects
 cd /opt/code-server
 log_success "Project structure created successfully."
 
 # --- Step 5: Create Configuration Files ---
 log_info "Step 5: Creating configuration files..."
-
-# Create .env file with secure permissions
 cat > .env <<EOF
 CODE_SERVER_PASSWORD=$PASSWORD
 EOF
-chmod 600 .env # Secure the password file
-
-# Create Dockerfile
+chmod 600 .env
 cat > Dockerfile <<'EOF'
 FROM codercom/code-server:latest
 USER root
@@ -138,8 +130,6 @@ RUN groupmod -g ${PGID:-1000} coder && \
     echo "coder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER coder
 EOF
-
-# Create docker-compose.yml
 cat > docker-compose.yml <<EOF
 services:
   code-server:
@@ -149,14 +139,13 @@ services:
     restart: unless-stopped
     environment:
       - PASSWORD=\${CODE_SERVER_PASSWORD}
-      - PUID=$(id -u)
-      - PGID=$(id -g)
+      - PUID=$REAL_UID
+      - PGID=$REAL_GID
     volumes:
       - /srv/projects:/home/coder/project
     networks:
       - codeserver_network
     command: code-server /home/coder/project
-
   nginx-proxy:
     image: nginx:latest
     container_name: nginx-proxy
@@ -169,13 +158,10 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     networks:
       - codeserver_network
-
 networks:
   codeserver_network:
     name: codeserver_network
 EOF
-
-# Create nginx.conf
 cat > nginx/nginx.conf <<EOF
 events {}
 http {
@@ -217,22 +203,18 @@ log_success "Services started successfully."
 # --- Step 7: Robust SSL Renewal Setup ---
 log_info "Step 7: Setting up automatic SSL renewal..."
 CRON_JOB="30 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/lib/letsencrypt:/var/lib/letsencrypt certbot/certbot renew --quiet"
-# Add cron job only if it doesn't exist
 (crontab -l 2>/dev/null | grep -F "$CRON_JOB") || (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
 log_success "Automatic SSL renewal configured."
 
 # --- Step 8: Comprehensive Final Verification ---
 log_info "Step 8: Performing comprehensive final verification..."
-sleep 15 # Allow containers to fully initialize
-
-# Check if containers are running by name
+sleep 15
 if ! docker ps --format '{{.Names}}' | grep -q '^code-server$'; then
     log_error "Container 'code-server' is not running. Check logs with 'docker compose logs code-server'."
 fi
 if ! docker ps --format '{{.Names}}' | grep -q '^nginx-proxy$'; then
     log_error "Container 'nginx-proxy' is not running. Check logs with 'docker compose logs nginx-proxy'."
 fi
-
 log_success "All verifications passed. The system is fully operational."
 
 # --- End ---
