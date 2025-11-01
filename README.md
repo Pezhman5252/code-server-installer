@@ -11,6 +11,7 @@ curl -sSL https://raw.githubusercontent.com/Pezhman5252/code-server-installer/ma
 
 
 راهنمای مدیریت سرویس Code-Server
+
 cd /opt/code-server
 
 
