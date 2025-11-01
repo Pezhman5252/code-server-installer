@@ -2,7 +2,7 @@
 
 # ==============================================================================
 #  Advanced & Automated Code-Server Installation Script (Final Version)
-#  Version: 2.3 - Production Ready, Fully Tested & Idempotent
+#  Version: 2.7 - Production Ready, Fully Tested & Idempotent
 #  Target OS: Ubuntu 24.04 LTS
 #  Run with: curl -sSL <URL> | sudo bash
 # ==============================================================================
@@ -14,11 +14,13 @@ set -euo pipefail
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Logging Functions
 log_info() { echo -e "${YELLOW}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warn() { echo -e "${BLUE}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # --- Pre-flight Checks ---
@@ -31,13 +33,19 @@ if ! grep -q 'Ubuntu 24.04' /etc/os-release; then
 fi
 log_success "Pre-flight checks passed."
 
-# --- Get Real User ID/GID (Handles sudo correctly) ---
-# This is the crucial part for correct permissions. It detects the user who invoked sudo,
-# not the root user, ensuring file ownership is correct.
-REAL_USER=${SUDO_USER:-$USER}
-REAL_UID=$(id -u "$REAL_USER")
-REAL_GID=$(id -g "$REAL_USER")
-log_info "Detected real user: $REAL_USER (UID: $REAL_UID, GID: $REAL_GID)"
+# --- Get Real User ID/GID (Handles sudo correctly and gracefully) ---
+# This logic now supports both running with `sudo` and running directly as `root`.
+if [ -n "${SUDO_USER:-}" ]; then
+    REAL_USER="$SUDO_USER"
+    REAL_UID=$(id -u "$REAL_USER")
+    REAL_GID=$(id -g "$REAL_USER")
+    log_info "Detected real user: $REAL_USER (UID: $REAL_UID, GID: $REAL_GID)"
+else
+    log_warn "Script is running as root directly. Falling back to default user ID 1000 for file permissions."
+    log_warn "For best practice, consider creating a non-root user and running the script with 'sudo'."
+    REAL_UID=1000
+    REAL_GID=1000
+fi
 
 # --- User Input ---
 echo "----------------------------------------------------------------"
@@ -110,8 +118,9 @@ log_success "SSL certificate issued successfully."
 log_info "Step 4: Creating project structure and setting permissions..."
 mkdir -p /opt/code-server/nginx
 mkdir -p /srv/projects
-# Set ownership to the REAL user to avoid permission issues
+# Set ownership and permissions recursively for the project directory
 chown -R "$REAL_UID":"$REAL_GID" /srv/projects
+chmod -R 775 /srv/projects
 cd /opt/code-server
 log_success "Project structure created successfully."
 
@@ -197,7 +206,7 @@ log_success "Configuration files created successfully."
 
 # --- Step 6: Final Deployment ---
 log_info "Step 6: Building image and starting services..."
-docker compose up -d --build
+docker compose up -d --build --force-recreate
 log_success "Services started successfully."
 
 # --- Step 7: Robust SSL Renewal Setup ---
