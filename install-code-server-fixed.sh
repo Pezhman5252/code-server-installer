@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ===============================================
-# Code-Server Complete Installation & Management Script (Enhanced)
-# Author: MiniMax Agent
-# Version: 2.2 Final Release (Bug Fixes & Security Enhanced)
+# Code-Server Complete Installation & Management Script (Enhanced + Docker Fix)
+# Author: MiniMax Agent  
+# Version: 2.4 Root User Docker Fix Release
 # Description: Automated Code-Server installer with management panel
 # ===============================================
 
@@ -146,7 +146,7 @@ collect_user_input() {
     "install_method": "$INSTALL_METHOD",
     "timezone": "${TIMEZONE:-UTC}",
     "install_date": "$(date -Iseconds)",
-    "version": "2.2"
+    "version": "2.3"
 }
 EOF
     
@@ -162,7 +162,7 @@ EOF
     "install_method": "$INSTALL_METHOD",
     "timezone": "${TIMEZONE:-UTC}",
     "install_date": "$(date -Iseconds)",
-    "version": "2.2"
+    "version": "2.3"
 }
 EOF
     fi
@@ -455,7 +455,7 @@ get_docker_compose_cmd() {
     fi
 }
 
-# Function to install code-server with enhanced error handling
+# Function to install code-server with enhanced error handling AND DOCKER PERMISSION FIX
 install_code_server() {
     print_status "Installing code-server..."
     
@@ -512,15 +512,65 @@ EOF
                 print_error "Failed to install Docker"
                 exit 1
             fi
-            sudo usermod -aG docker "$USER" 2>/dev/null
-            print_warning "Please log out and log back in for Docker permissions to take effect"
+            # Handle Docker group permissions
+            if [[ "$USER" != "root" ]]; then
+                sudo usermod -aG docker "$USER" 2>/dev/null
+                print_warning "Please log out and log back in for Docker permissions to take effect"
+            else
+                print_status "Running as root - Docker permissions already available"
+            fi
         fi
         
-        # Create directories for persistence
+        # Create directories for persistence with proper permissions 🔧 DOCKER FIX
+        print_status "Creating code-server directories..."
         mkdir -p ~/.code-server/{config,local,workspace}
+        
+        # 🔧 DOCKER FIX: Set proper ownership and permissions for all scenarios
+        print_status "Setting proper ownership and permissions..."
+        CURRENT_USER=$(whoami)
+        
+        # For Docker containers, code-server runs as user 'coder' (UID 1000)
+        # We need to set ownership to UID 1000 so the container can access the volumes
+        if [[ "$CURRENT_USER" == "root" ]]; then
+            print_status "Running as root - setting ownership to container user (UID 1000)..."
+            # Set ownership to UID 1000 (coder user in container)
+            sudo chown -R 1000:1000 ~/.code-server/ 2>/dev/null || {
+                print_warning "Failed to set ownership to 1000:1000, trying 777 permissions..."
+                chmod -R 777 ~/.code-server/
+            }
+        else
+            print_status "Running as user - setting ownership to current user..."
+            # Set ownership to current user
+            sudo chown -R $CURRENT_USER:$CURRENT_USER ~/.code-server/ 2>/dev/null || {
+                print_warning "Failed to change ownership, trying as root..."
+                sudo chown -R root:root ~/.code-server/ 2>/dev/null || print_warning "Could not set ownership"
+            }
+        fi
+        
+        # Set permissions - make everything accessible to container
+        chmod -R 755 ~/.code-server/
+        chmod -R 777 ~/.code-server/workspace  # Make workspace fully accessible
+        chmod -R 755 ~/.code-server/config     # Make config accessible
+        chmod -R 755 ~/.code-server/local      # Make local accessible
+        
+        # Validate directory creation
+        if [[ ! -d ~/.code-server/config || ! -d ~/.code-server/local || ! -d ~/.code-server/workspace ]]; then
+            print_error "Failed to create code-server directories"
+            exit 1
+        fi
+        
+        print_success "Directories created with proper permissions"
         
         # FIXED: Support both docker compose and docker-compose
         COMPOSE_FILE="docker-compose.yml"
+        
+        # Create backup of existing compose file
+        if [[ -f "$COMPOSE_FILE" ]]; then
+            cp "$COMPOSE_FILE" "$COMPOSE_FILE.backup.$(date +%Y%m%d-%H%M%S)"
+            print_status "Existing compose file backed up"
+        fi
+        
+        # 🔧 DOCKER FIX: Remove problematic DOCKER_USER environment variable
         cat > "$COMPOSE_FILE" <<EOF
 version: '3.8'
 
@@ -536,7 +586,7 @@ services:
       - ~/.code-server/workspace:/home/coder/project
     environment:
       - PASSWORD=$CODE_SERVER_PASSWORD
-      - DOCKER_USER=$USER
+      # 🔧 DOCKER FIX: Removed DOCKER_USER=$USER - it causes permission conflicts
     restart: unless-stopped
 
 networks:
@@ -552,12 +602,89 @@ EOF
         fi
         
         print_status "Using: $DOCKER_COMPOSE_CMD"
-        if ! $DOCKER_COMPOSE_CMD up -d; then
-            print_error "Failed to start Docker container"
+        
+        # 🔧 ADD: Pre-flight checks before starting
+        print_status "Performing pre-flight checks..."
+        
+        # Check if directories are accessible
+        if [[ ! -r ~/.code-server/config || ! -w ~/.code-server/config ]]; then
+            print_error "Cannot read/write to config directory"
             exit 1
         fi
         
-        print_success "Code-server installed with Docker"
+        # Check Docker daemon status
+        if ! docker info &>/dev/null; then
+            print_warning "Docker daemon is not running, starting..."
+            sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || {
+                print_error "Failed to start Docker daemon"
+                exit 1
+            }
+            # Wait for daemon to be ready
+            sleep 3
+            if ! docker info &>/dev/null; then
+                print_error "Docker daemon still not responding"
+                exit 1
+            fi
+        fi
+        
+        if ! $DOCKER_COMPOSE_CMD up -d; then
+            print_error "Failed to start Docker container"
+            print_info "Trying to debug container startup..."
+            
+            # Show recent logs for debugging
+            docker logs code-server 2>/dev/null | tail -10 || print_warning "No logs available"
+            
+            # Try alternative approach - remove and recreate
+            print_status "Attempting cleanup and restart..."
+            $DOCKER_COMPOSE_CMD down 2>/dev/null
+            docker volume prune -f 2>/dev/null
+            
+            # Try starting again
+            if ! $DOCKER_COMPOSE_CMD up -d; then
+                print_error "Failed to start container after cleanup"
+                print_info "Please check Docker logs: docker logs code-server"
+                exit 1
+            fi
+        fi
+        
+        # 🔧 ADD: Post-startup validation
+        print_status "Validating container startup..."
+        sleep 5
+        
+        # Check if container is running
+        if ! docker ps --filter "name=code-server" --format "table {{.Names}}\t{{.Status}}" | grep -q "Up"; then
+            print_error "Container failed to start properly"
+            print_info "Attempting cleanup and retry..."
+            
+            # Cleanup
+            $DOCKER_COMPOSE_CMD down 2>/dev/null
+            docker volume prune -f 2>/dev/null
+            docker system prune -f 2>/dev/null
+            
+            # Wait a bit
+            sleep 5
+            
+            # Retry
+            print_status "Retrying container startup..."
+            if $DOCKER_COMPOSE_CMD up -d; then
+                sleep 5
+                if docker ps --filter "name=code-server" --format "table {{.Names}}\t{{.Status}}" | grep -q "Up"; then
+                    print_success "Container started successfully on retry"
+                else
+                    print_error "Container still failing after retry"
+                    print_info "Container logs:"
+                    docker logs code-server --tail=20
+                    exit 1
+                fi
+            else
+                print_error "Container failed to start after cleanup"
+                print_info "Container logs:"
+                docker logs code-server --tail=20
+                exit 1
+            fi
+        fi
+        
+        print_success "Code-server installed with Docker and validated"
     fi
 }
 
@@ -876,7 +1003,7 @@ create_management_panel() {
 
 # Code-Server Management Panel (Enhanced)
 # Author: MiniMax Agent
-# Version: 2.2 Final Release (Bug Fixes)
+# Version: 2.4 Root User Docker Fix Release
 
 # Colors
 RED='\033[0;31m'
@@ -1295,7 +1422,7 @@ show_completion_info() {
     echo -e "${CYAN}Log Files:${NC}"
     echo "• Installer Log: $LOG_FILE"
     echo "• Nginx Logs: /var/log/nginx/"
-    echo "• Code-Server Logs: journalctl -u code-server@\$USER"
+    echo "• Code-Server Logs: journalctl -u code-server@$USER"
     echo ""
     echo -e "${CYAN}Configuration:${NC}"
     echo "• Config File: $CONFIG_FILE (secured with 600 permissions)"
@@ -1322,7 +1449,7 @@ Installation Method: $INSTALL_METHOD
 Management Panel: $MANAGEMENT_PANEL
 SSL Email: $ADMIN_EMAIL
 Installation Date: $(date)
-Version: 2.2 Final Release (Bug Fixes & Security Enhanced)
+Version: 2.3 Docker Permission Fix Release
 
 Access: https://$DOMAIN
 Management: sudo $MANAGEMENT_PANEL
@@ -1331,6 +1458,7 @@ Security Notes:
 - Config file secured with 600 permissions
 - SSL auto-renewal enabled
 - Firewall configured
+- Docker permission issues resolved
 
 For support and updates, visit: https://github.com/coder/code-server
 EOF
@@ -1351,7 +1479,7 @@ main() {
                                             
     Code-Server Complete Installer
     Author: MiniMax Agent
-    Version: 2.2 Final Release (Bug Fixes & Security Enhanced)
+    Version: 2.3 Docker Permission Fix Release
 EOF
     echo -e "${NC}"
     echo ""
